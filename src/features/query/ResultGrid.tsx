@@ -57,7 +57,11 @@ export function ResultGrid({ result, dark = false }: Props) {
   const gridOptions = useMemo<GridOptions>(
     () => ({
       animateRows: false,
-      suppressCellFocus: true,
+      // Allow users to drag-select text inside a cell (Cmd/Ctrl+C copies it)
+      // and to copy full rows / ranges from the built-in clipboard handler.
+      enableCellTextSelection: true,
+      ensureDomOrder: true,
+      copyHeadersToClipboard: false,
       // Row data changes trigger an expensive diff by default; for ad-hoc
       // queries we always swap the entire dataset.
       suppressColumnVirtualisation: false,

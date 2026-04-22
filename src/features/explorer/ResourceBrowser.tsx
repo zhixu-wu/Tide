@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -6,9 +6,12 @@ import {
   Hash,
   Loader2,
   RefreshCw,
+  Search,
   Table2,
+  X,
 } from "lucide-react";
 
+import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/store/connection-store";
@@ -51,6 +54,7 @@ export function ResourceBrowser({ onSelectTable }: Props) {
     new Set()
   );
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
 
   const loadSchemas = useCallback(async () => {
     if (!activeId) return;
@@ -75,10 +79,65 @@ export function ResourceBrowser({ onSelectTable }: Props) {
     setState(initialTreeState);
     setExpandedSchemas(new Set());
     setExpandedTables(new Set());
+    setSearch("");
     if (activeId) {
       loadSchemas();
     }
   }, [activeId, loadSchemas]);
+
+  // When the user types in the search box, eagerly load tables for every
+  // schema (so we can match table names the user has never expanded).
+  useEffect(() => {
+    if (!search.trim() || !activeId || !state.schemas) return;
+    for (const schema of state.schemas) {
+      if (state.tablesBySchema[schema] || state.tableLoading[schema]) continue;
+      setState((s) => ({
+        ...s,
+        tableLoading: { ...s.tableLoading, [schema]: true },
+      }));
+      api
+        .listTables(activeId, schema)
+        .then((tables) =>
+          setState((s) => ({
+            ...s,
+            tablesBySchema: { ...s.tablesBySchema, [schema]: tables },
+            tableLoading: { ...s.tableLoading, [schema]: false },
+          }))
+        )
+        .catch((e) =>
+          setState((s) => ({
+            ...s,
+            tableLoading: { ...s.tableLoading, [schema]: false },
+            error: String(e),
+          }))
+        );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, activeId, state.schemas]);
+
+  // Filter + collect schemas/tables to render. When searching, every matching
+  // schema is considered expanded regardless of the user's prior toggles.
+  const query = search.trim().toLowerCase();
+  const searching = query.length > 0;
+
+  const visibleSchemas = useMemo(() => {
+    if (!state.schemas) return [];
+    if (!searching) return state.schemas;
+    return state.schemas.filter((schema) => {
+      if (schema.toLowerCase().includes(query)) return true;
+      const tables = state.tablesBySchema[schema];
+      return tables?.some((t) => t.name.toLowerCase().includes(query)) ?? false;
+    });
+  }, [state.schemas, state.tablesBySchema, query, searching]);
+
+  const filteredTables = (schema: string): TableInfo[] | undefined => {
+    const all = state.tablesBySchema[schema];
+    if (!all || !searching) return all;
+    // If the schema name itself matched, show all of its tables (user likely
+    // wants to browse within that schema). Otherwise filter to matching tables.
+    if (schema.toLowerCase().includes(query)) return all;
+    return all.filter((t) => t.name.toLowerCase().includes(query));
+  };
 
   const toggleSchema = async (schema: string) => {
     const next = new Set(expandedSchemas);
@@ -174,6 +233,28 @@ export function ResourceBrowser({ onSelectTable }: Props) {
         </button>
       </div>
 
+      <div className="relative px-2 pb-2">
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search tables…"
+          className="h-7 pl-7 pr-7 text-xs"
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+        />
+        {search && (
+          <button
+            className="absolute right-4 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent"
+            title="Clear"
+            onClick={() => setSearch("")}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+
       <div className="flex-1 overflow-y-auto px-2 pb-2 text-sm">
         {state.schemaLoading && (
           <Row indent={0}>
@@ -194,12 +275,18 @@ export function ResourceBrowser({ onSelectTable }: Props) {
           </p>
         )}
 
-        {state.schemas?.map((schema) => {
-          const open = expandedSchemas.has(schema);
-          const tables = state.tablesBySchema[schema];
+        {state.schemas && visibleSchemas.length === 0 && searching && (
+          <p className="px-2 py-1 text-xs text-muted-foreground">
+            No tables matching "{search}".
+          </p>
+        )}
+
+        {visibleSchemas.map((schema) => {
+          const open = searching || expandedSchemas.has(schema);
+          const tables = filteredTables(schema);
           return (
             <div key={schema}>
-              <Row indent={0} onClick={() => toggleSchema(schema)}>
+              <Row indent={0} onClick={() => !searching && toggleSchema(schema)}>
                 {open ? (
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 ) : (
@@ -235,7 +322,9 @@ export function ResourceBrowser({ onSelectTable }: Props) {
                           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                         )}
                         <Table2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="truncate">{t.name}</span>
+                        <span className="truncate">
+                          {highlight(t.name, query)}
+                        </span>
                       </Row>
 
                       {tableOpen && state.columnLoading[key] && (
@@ -319,4 +408,21 @@ function shortenType(t: string): string {
     return "time";
   }
   return t;
+}
+
+function highlight(text: string, query: string): React.ReactNode {
+  if (!query) return text;
+  const lower = text.toLowerCase();
+  const idx = lower.indexOf(query);
+  if (idx < 0) return text;
+  const end = idx + query.length;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="rounded-sm bg-primary/20 text-foreground">
+        {text.slice(idx, end)}
+      </mark>
+      {text.slice(end)}
+    </>
+  );
 }

@@ -20,7 +20,11 @@ function App() {
 
   const handleSelectTable = (schema: string, table: string) => {
     setPendingTemplate(
-      `SELECT * FROM "${schema}"."${table}" ORDER BY time DESC LIMIT 100`
+      `SELECT *
+FROM "${schema}"."${table}"
+WHERE time >= now() - INTERVAL '30 minutes'
+ORDER BY time DESC
+LIMIT 100`
     );
   };
 

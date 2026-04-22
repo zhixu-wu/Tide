@@ -29,11 +29,20 @@ impl FlightSqlClient {
     pub async fn connect(conn: &Connection, token: &str) -> AppResult<Self> {
         let endpoint_url = conn.endpoint();
 
+        // Keep-alive tuning: we've seen the gRPC channel go silently dead
+        // when an openresty/nginx reverse proxy recycles idle HTTP/2 streams
+        // after a few minutes. With `keep_alive_while_idle(true)` tonic
+        // actively pings even when the app isn't running any queries, so
+        // either (a) the connection stays warm, or (b) a broken middle box
+        // surfaces the failure immediately instead of on the next query.
         let mut endpoint = Endpoint::from_str(&endpoint_url)
             .map_err(|e| AppError::Connection(format!("invalid endpoint {endpoint_url}: {e}")))?
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(60))
-            .http2_keep_alive_interval(Duration::from_secs(30));
+            .tcp_keepalive(Some(Duration::from_secs(30)))
+            .http2_keep_alive_interval(Duration::from_secs(30))
+            .keep_alive_timeout(Duration::from_secs(10))
+            .keep_alive_while_idle(true);
 
         if conn.use_tls {
             let tls = ClientTlsConfig::new().with_native_roots();

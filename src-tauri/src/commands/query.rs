@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use arrow::record_batch::RecordBatch;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::State;
@@ -37,18 +38,22 @@ pub async fn run_query(
     row_limit: Option<usize>,
 ) -> AppResult<QueryResult> {
     let limit = row_limit.unwrap_or(DEFAULT_ROW_LIMIT).max(1);
-    let client = pool.get(&connection_id).await?;
-    let mut guard = client.lock().await;
 
     let start = Instant::now();
-    let outcome = guard.query(&sql).await;
+    let outcome: AppResult<Vec<RecordBatch>> = pool
+        .with_retry(&connection_id, |client| {
+            let sql = sql.clone();
+            async move {
+                let mut guard = client.lock().await;
+                guard.query(&sql).await
+            }
+        })
+        .await;
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
     let batches = match outcome {
         Ok(b) => b,
         Err(e) => {
-            drop(guard);
-            pool.drop(&connection_id).await;
             let _ = history::append(&HistoryEntry {
                 id: history::new_id(),
                 connection_id,

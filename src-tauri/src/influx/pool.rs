@@ -5,11 +5,12 @@
 //! client fails, the caller may invalidate it via `drop` and retry.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::influx::flight::FlightSqlClient;
 use crate::models::Connection;
 use crate::storage::{connections as store, keychain};
@@ -52,5 +53,54 @@ impl ClientPool {
     pub async fn drop(&self, connection_id: &str) {
         let mut map = self.clients.lock().await;
         map.remove(connection_id);
+    }
+
+    /// Run `op` with a cached client; if it fails with a likely-transport
+    /// error (broken pipe / reset / timeout), drop the client and retry once.
+    ///
+    /// The closure receives a &mut FlightSqlClient already locked. Callers
+    /// should NOT hold the mutex themselves — this wrapper handles it.
+    pub async fn with_retry<T, F, Fut>(&self, connection_id: &str, op: F) -> AppResult<T>
+    where
+        F: Fn(SharedClient) -> Fut,
+        Fut: Future<Output = AppResult<T>>,
+    {
+        let client = self.get(connection_id).await?;
+        match op(client.clone()).await {
+            Ok(v) => Ok(v),
+            Err(e) if is_transport_error(&e) => {
+                // Connection looks stale (keep-alive ping failed, proxy
+                // dropped us, etc.) — rebuild and try once more.
+                self.drop(connection_id).await;
+                let fresh = self.get(connection_id).await?;
+                op(fresh).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+fn is_transport_error(e: &AppError) -> bool {
+    match e {
+        AppError::Transport(_) => true,
+        AppError::Status(status) => matches!(
+            status.code(),
+            tonic::Code::Unavailable
+                | tonic::Code::Aborted
+                | tonic::Code::DeadlineExceeded
+                | tonic::Code::Cancelled
+        ),
+        AppError::Connection(_) => true,
+        AppError::Query(msg) => {
+            // tonic tucks transport errors inside a generic Status; the
+            // stringified message is our last resort.
+            let m = msg.to_lowercase();
+            m.contains("broken pipe")
+                || m.contains("connection reset")
+                || m.contains("connection closed")
+                || m.contains("transport error")
+                || m.contains("h2 protocol error")
+        }
+        _ => false,
     }
 }
