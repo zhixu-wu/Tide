@@ -2,7 +2,7 @@ name: Release
 
 # Triggered by pushing a tag like `v0.1.0`.
 # Each tag produces a draft GitHub Release with installers for macOS
-# (arm64 + x64), Windows (x64) and Linux (x64) attached as assets.
+# (arm64 + x64) and Windows (x64) attached as assets.
 on:
   push:
     tags:
@@ -24,9 +24,6 @@ jobs:
           - platform: macos-13
             args: "--target x86_64-apple-darwin"
             rust-target: x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            args: "--bundles deb,appimage"
-            rust-target: ""
           - platform: windows-latest
             args: ""
             rust-target: ""
@@ -45,18 +42,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
-
-      - name: Install Linux system deps
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            pkg-config
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -82,7 +67,6 @@ jobs:
             - **macOS Apple Silicon:** `.dmg` with `aarch64` in the name
             - **macOS Intel:** `.dmg` with `x64` in the name
             - **Windows:** `.msi` or `-setup.exe`
-            - **Linux:** `.AppImage` (portable) or `.deb`
 
             First launch on unsigned platforms:
             - macOS: right-click the app → **Open** the first time

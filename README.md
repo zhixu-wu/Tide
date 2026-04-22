@@ -53,8 +53,8 @@ Outputs to `src-tauri/target/release/bundle/`:
 ## Releasing (multi-platform)
 
 The repo ships a GitHub Actions workflow (`.github/workflows/release.yml`) that
-builds installers for macOS (arm64 + x64), Windows (x64) and Linux (x64) on every
-`v*` tag and attaches them to a draft GitHub Release.
+builds installers for macOS (arm64 + x64) and Windows (x64) on every `v*` tag
+and attaches them to a draft GitHub Release.
 
 Cut a release:
 
