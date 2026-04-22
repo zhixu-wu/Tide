@@ -1,0 +1,54 @@
+[package]
+name = "tide"
+version = "0.1.0"
+description = "Cross-platform desktop client for InfluxDB 3.x"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# Named with a `_lib` suffix to avoid colliding with the `tide` bin name, and
+# to avoid any confusion with the unrelated `tide` web-server crate on
+# crates.io (this crate is never published).
+name = "tide_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+
+# FlightSQL / Arrow — InfluxDB 3.x query protocol
+arrow = { version = "53", features = ["ipc"] }
+arrow-flight = { version = "53", features = ["flight-sql-experimental"] }
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+futures = "0.3"
+prost = "0.13"
+
+# Local secure token storage
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# UUID for connection IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Base64 (for encoding Arrow IPC to send through Tauri events)
+base64 = "0.22"
+
